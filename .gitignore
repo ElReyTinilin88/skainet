@@ -1,0 +1,6 @@
+# archivos
+.env
+
+# carpetas
+.next/
+node_modules/
