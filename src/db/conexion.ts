@@ -1,11 +1,11 @@
 import mysql from 'mysql2'
 
 const connection = mysql.createConnection({
-  host: process.env.HOST,
-  user: process.env.USER,
-  password: process.env.PASSWORD,
-  database: process.env.DATABASE,
-  port:  Number(process.env.PORT)
+  host: process.env.HOST || 'localhost',
+  user: process.env.USER || 'root',
+  password: process.env.PASSWORD || '',
+  database: process.env.DATABASE || 'control_acceso',
+  port: 3306
 });
 
 connection.connect((error) => {
