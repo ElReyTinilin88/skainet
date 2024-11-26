@@ -1,6 +1,5 @@
-#include <Adafruit_Fingerprint.h>
 #include <WiFi.h>
-
+#include <Adafruit_Fingerprint.h>
 const char* ssid = "Totalplay-_2.4G";
 const char* password = "jtkWdupDW3T8xC3j";
 // Definir los pines RX y TX para la comunicación con el sensor
@@ -67,6 +66,7 @@ void setup() {
   Serial.println(finger.packet_len);
   Serial.print(F("Baud rate: "));
   Serial.println(finger.baud_rate);
+  nextID = findNextAvailableID();
 }
 
 uint8_t readnumber(void) {
@@ -99,7 +99,7 @@ void loop() {
           if (currentLine.length() == 0) {
             if (header.indexOf("GET /register") >= 0) {  // Verificar si la ruta es "/register"
               Serial.println("Petición recibida para /register");
-
+              viewStoredFingerprints();
               int id = registerFingerprint();
 
               if (id >= 0) {  // Si se ha registrado correctamente
@@ -112,6 +112,31 @@ void loop() {
                 client.println("Connection: close");
                 client.println();
                 client.print("{\"status\":\"success\", \"message\":\"Huella registrada\", \"id\":");
+                client.print(nextID - 1);  // Devolver el ID de la huella registrada
+                client.println("}");
+              } else {
+                // Si hubo un error al registrar la huella
+                client.println("HTTP/1.1 500 Internal Server Error");
+                client.println("Content-Type: application/json");
+                client.println("Connection: close");
+                client.println();
+                client.println("{\"status\":\"error\", \"message\":\"Error al registrar la huella\"}");
+              }
+            } else if (header.indexOf("GET /access") >= 0) {  // Verificar si la ruta es "/access"
+              Serial.println("Petición recibida para /access");
+              viewStoredFingerprints();
+              int id = readFingerprint();
+
+              if (id >= 0) {  // Si se ha registrado correctamente
+                              // Enviar respuesta HTTP con el ID registrado
+                client.println("HTTP/1.1 200 OK");
+                client.println("Content-Type: application/json");                             // Respuesta JSON (mejor que HTML para datos)
+                client.println("Access-Control-Allow-Origin: *");                             // Encabezado CORS
+                client.println("Access-Control-Allow-Methods: GET, POST, PUT, DELETE");       // Métodos permitidos
+                client.println("Access-Control-Allow-Headers: Content-Type, Authorization");  // Encabezados permitidos
+                client.println("Connection: close");
+                client.println();
+                client.print("{\"status\":\"success\", \"message\":\"Huella leida correctamente\", \"id\":");
                 client.print(id);  // Devolver el ID de la huella registrada
                 client.println("}");
               } else {
@@ -150,6 +175,7 @@ void loop() {
   }
 }
 
+// Función para registrar una nueva huella
 uint8_t registerFingerprint() {
   Serial.println("¡Por favor, coloque su dedo para registrar la huella!");
 
@@ -210,19 +236,44 @@ uint8_t registerFingerprint() {
   // Guardar el modelo en la base de datos
   p = finger.storeModel(nextID);
   if (p == FINGERPRINT_OK) {
-    Serial.print("Huella registrada correctamente con el ID: ");
-    Serial.println(nextID);
-
-    // Incrementar el siguiente ID para la siguiente huella
-    nextID++;
-    if (nextID > 127) {
-      nextID = 1;  // Si llega al máximo de 127, reinicia el contador a 1
-    }
+    // Si el almacenamiento fue exitoso, incrementar el ID para la siguiente huella
+    nextID = findNextAvailableID();
   } else {
     Serial.println("Error al almacenar la huella.");
   }
 
-  return --nextID;
+  return p;
+}
+
+// Función para encontrar el siguiente ID disponible
+uint8_t findNextAvailableID() {
+  uint8_t availableID = nextID;
+  uint8_t p;
+
+  // Buscar un ID disponible
+  while (availableID <= 127) {
+    p = finger.loadModel(availableID);
+    if (p == FINGERPRINT_OK) {
+      Serial.print("ID ");
+      Serial.print(availableID);
+      Serial.println(" ya está ocupado.");
+      availableID++;
+    } else {
+      // Si el modelo no se encuentra, este ID está disponible
+      Serial.print("ID ");
+      Serial.print(availableID);
+      Serial.println(" está disponible.");
+      break;
+    }
+  }
+
+  // Si se alcanza el límite de IDs (127), reiniciar
+  if (availableID > 127) {
+    Serial.println("No hay espacio disponible. Reiniciando el contador.");
+    availableID = 1;
+  }
+
+  return availableID;
 }
 
 void deleteAllFingerprints() {
@@ -263,52 +314,44 @@ void viewStoredFingerprints() {
   }
 }
 
-void readFingerprint() {
+int readFingerprint() {
   Serial.println("¡Por favor, coloque su dedo para leerlo!");
-
-  int p = -1;
-
-  // Esperar hasta que se coloque un dedo en el sensor
-  while (p != FINGERPRINT_OK) {
-    p = finger.getImage();
-    if (p == FINGERPRINT_NOFINGER) {
-      Serial.print(".");  // Esto indicará que el sistema está esperando
-      delay(100);         // Reducir la velocidad de la espera para evitar saturar el serial
-    }
+  Serial.println("Esperando huella...");
+  // Buscar huella registrada
+  int fingerprintID = -1;
+  while (fingerprintID == -1) {
+    fingerprintID = getFingerprintID();
+    delay(500);
   }
 
-  Serial.println("Dedo detectado.");
+  //condicional para los mensajes;
+  if (fingerprintID >= 0) {
+    Serial.print("Huella reconocida con ID: ");
+    Serial.println(fingerprintID);
+    return fingerprintID;
+  } else {
+    // Si no hay coincidencia, mostrar mensaje
+    Serial.println("Huella no reconocida.");
+    return fingerprintID;
+  }
+}
 
-  // Convertir la imagen del dedo en plantilla
-  p = finger.image2Tz(1);
+// Función para obtener la huella registrada
+int getFingerprintID() {
+  uint8_t p = finger.getImage();
   if (p != FINGERPRINT_OK) {
-    Serial.println("Error al convertir la imagen en plantilla");
-    return;
+    return -1;  // No se pudo leer la huella
   }
 
-
-  for (uint8_t i = 1; i <= 127; i++) {
-
-    p = finger.loadModel(i);
-    if (p == FINGERPRINT_OK) {
-      Serial.print("Comparando con el ID: ");
-      Serial.println(i);
-
-      p = finger.fingerFastSearch();
-      if (p == FINGERPRINT_OK) {
-        Serial.print("¡Huella encontrada! ID: ");
-        Serial.println(i);
-        return;
-      } else if (p == FINGERPRINT_PACKETRECIEVEERR) {
-        Serial.println("Error en la comunicación");
-      } else if (p == FINGERPRINT_ENROLLMISMATCH) {
-        Serial.println("Las huellas no coinciden");
-      }
-    } else {
-      Serial.println(i);
-    }
+  p = finger.image2Tz();
+  if (p != FINGERPRINT_OK) {
+    return -1;  // Error al convertir la imagen de huella
   }
 
-  Serial.println("No se encontraron coincidencias para la huella.");
-  Serial.println("Puede proceder a guardarla si lo desea.");
+  p = finger.fingerSearch();
+  if (p != FINGERPRINT_OK) {
+    return -1;  // No se encontró una coincidencia
+  }
+
+  return finger.fingerID;  // ID de la huella detectada
 }

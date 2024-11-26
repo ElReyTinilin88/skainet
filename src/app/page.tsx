@@ -6,28 +6,35 @@ export default function Page() {
   const form = useRef()
 
   async function submit(e) {
-    e.preventDefault();
-    const form = e.target;
-    const formData = new FormData(form);
-    const data = {
-      id: null
+    try {
+
+
+      e.preventDefault();
+      const form = e.target;
+      const formData = new FormData(form);
+      const data = {
+        id: null
+      }
+
+      formData.forEach((value, key) => {
+        data[key] = value
+      })
+
+      const resp = await fetch('http://192.168.100.6/register')
+      const { id } = await resp.json()
+      data.id = id
+
+      fetch('http://192.168.100.15:3000/api/register', {
+        method: 'POST',
+        body: JSON.stringify(data)
+      })
+        .then(response => response.json())
+        .then(result => console.log(result))
+        .catch(error => console.error('Error:', error))
+
+    } catch (error) {
+      console.log(error)
     }
-
-    formData.forEach((value, key) => {
-      data[key] = value
-    })
-
-    const resp = await fetch('http://192.168.100.6/register')
-    const { id } = await resp.json()
-    data.id = id
-
-    fetch('http://192.168.100.15:3000/api/register', {
-      method: 'POST',
-      body: JSON.stringify(data)
-    })
-      .then(response => response.json())
-      .then(result  => console.log(result))
-      .catch(error => console.error('Error:', error))
   }
 
   return <>
